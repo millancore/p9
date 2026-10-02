@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/internal"
@@ -286,18 +287,41 @@ func (l *Local) Renamed(parent p9.File, newName string) {
 
 // SetAttr implements p9.File.SetAttr.
 func (l *Local) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
-	// When truncate(2) is called on Linux, Linux will try to set time & size. Fake it. Sorry.
-	supported := p9.SetAttrMask{Size: true, MTime: true, CTime: true, ATime: true}
-	if !valid.IsSubsetOf(supported) {
+	if !valid.IsSubsetOf(settableAttrs) {
 		return linux.ENOSYS
 	}
 
 	if valid.Size {
-		// If more than one thing is ever implemented, we can't just
-		// return an error here.
-		return os.Truncate(l.path, int64(attr.Size))
+		var err error
+		if l.file != nil {
+			err = l.file.Truncate(int64(attr.Size))
+		} else {
+			err = os.Truncate(l.path, int64(attr.Size))
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+
+	if !valid.ATime && !valid.MTime {
+		return nil
+	}
+	// os.Chtimes leaves a time given as the zero time unchanged.
+	var atime, mtime time.Time
+	now := time.Now()
+	if valid.ATime {
+		atime = now
+		if valid.ATimeNotSystemTime {
+			atime = time.Unix(int64(attr.ATimeSeconds), int64(attr.ATimeNanoSeconds))
+		}
+	}
+	if valid.MTime {
+		mtime = now
+		if valid.MTimeNotSystemTime {
+			mtime = time.Unix(int64(attr.MTimeSeconds), int64(attr.MTimeNanoSeconds))
+		}
+	}
+	return os.Chtimes(l.path, atime, mtime)
 }
 
 // UnlinkAt implements p9.File.UnlinkAt

@@ -12,6 +12,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// settableAttrs is what SetAttr applies. CTime cannot be set and is accepted
+// because truncate(2) on Linux asks for it.
+var settableAttrs = p9.SetAttrMask{
+	Size: true, ATime: true, MTime: true, CTime: true,
+	ATimeNotSystemTime: true, MTimeNotSystemTime: true,
+}
+
 func umask(mask int) int {
 	return syscall.Umask(mask)
 }

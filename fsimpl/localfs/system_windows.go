@@ -7,6 +7,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// settableAttrs is what SetAttr applies. NTFS has no POSIX modes or owners,
+// so those are accepted and ignored, as is CTime, which cannot be set.
+var settableAttrs = p9.SetAttrMask{
+	Size: true, ATime: true, MTime: true, CTime: true,
+	ATimeNotSystemTime: true, MTimeNotSystemTime: true,
+	Permissions: true, UID: true, GID: true,
+}
+
 func umask(_ int) int {
 	return 0
 }

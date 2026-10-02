@@ -82,3 +82,41 @@ func TestAppendWrites(t *testing.T) {
 		t.Errorf("Create with O_APPEND: content = %q", got)
 	}
 }
+
+func TestSetAttrTimesAndSize(t *testing.T) {
+	dir := t.TempDir()
+	root, err := Attacher(dir).Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "f")
+	if err := os.WriteFile(p, []byte("0123456789"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, f, _ := root.Walk([]string{"f"})
+
+	// touch -d sets both times to a given value.
+	if err := f.SetAttr(p9.SetAttrMask{ATime: true, MTime: true, ATimeNotSystemTime: true, MTimeNotSystemTime: true},
+		p9.SetAttr{ATimeSeconds: 1000000000, MTimeSeconds: 1000000000}); err != nil {
+		t.Fatalf("explicit times: %v", err)
+	}
+	if fi, _ := os.Stat(p); fi.ModTime().Unix() != 1000000000 {
+		t.Errorf("mtime = %v, want 1000000000", fi.ModTime().Unix())
+	}
+
+	// Setting only atime leaves mtime alone.
+	if err := f.SetAttr(p9.SetAttrMask{ATime: true}, p9.SetAttr{}); err != nil {
+		t.Fatalf("atime only: %v", err)
+	}
+	if fi, _ := os.Stat(p); fi.ModTime().Unix() != 1000000000 {
+		t.Errorf("mtime changed to %v by an atime-only SetAttr", fi.ModTime().Unix())
+	}
+
+	// truncate(2) sends size with ctime and mtime.
+	if err := f.SetAttr(p9.SetAttrMask{Size: true, MTime: true, CTime: true}, p9.SetAttr{Size: 4}); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	if fi, _ := os.Stat(p); fi.Size() != 4 || fi.ModTime().Unix() == 1000000000 {
+		t.Errorf("after truncate: size %d, mtime %v; want 4 and now", fi.Size(), fi.ModTime().Unix())
+	}
+}

@@ -112,3 +112,19 @@ func TestOpenFilesCanBeReplacedAndDeleted(t *testing.T) {
 		t.Errorf("host delete of a file a client holds open: %v", err)
 	}
 }
+
+// NTFS has no POSIX modes or owners; chmod and chown succeed and change nothing.
+func TestSetAttrAcceptsModesAndOwners(t *testing.T) {
+	dir := t.TempDir()
+	root, err := Attacher(dir).Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, f, _ := root.Walk([]string{"f"})
+	if err := f.SetAttr(p9.SetAttrMask{Permissions: true, UID: true, GID: true}, p9.SetAttr{Permissions: 0755, UID: 1000, GID: 1000}); err != nil {
+		t.Fatalf("chmod and chown: %v", err)
+	}
+}
