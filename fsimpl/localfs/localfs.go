@@ -60,6 +60,10 @@ type Local struct {
 
 	path string
 	file *os.File
+
+	// appendMode emulates O_APPEND, since Go refuses WriteAt on a file
+	// opened with it.
+	appendMode bool
 }
 
 var (
@@ -172,12 +176,14 @@ func (l *Local) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return qid, 0, err
 	}
 
-	// Do the actual open.
-	f, err := os.OpenFile(l.path, int(mode), 0)
+	// Do the actual open. O_APPEND is emulated in WriteAt.
+	flags := int(mode)
+	f, err := os.OpenFile(l.path, flags&^os.O_APPEND, 0)
 	if err != nil {
 		return qid, 0, err
 	}
 	l.file = f
+	l.appendMode = flags&os.O_APPEND != 0
 
 	return qid, 0, nil
 }
@@ -194,18 +200,26 @@ func (l *Local) Lock(pid int, locktype p9.LockType, flags p9.LockFlags, start, l
 
 // WriteAt implements p9.File.WriteAt.
 func (l *Local) WriteAt(p []byte, offset int64) (int, error) {
+	if l.appendMode {
+		fi, err := l.file.Stat()
+		if err != nil {
+			return 0, err
+		}
+		offset = fi.Size()
+	}
 	return l.file.WriteAt(p, offset)
 }
 
 // Create implements p9.File.Create.
 func (l *Local) Create(name string, mode p9.OpenFlags, permissions p9.FileMode, _ p9.UID, _ p9.GID) (p9.File, p9.QID, uint32, error) {
 	newName := path.Join(l.path, name)
-	f, err := os.OpenFile(newName, int(mode)|os.O_CREATE|os.O_EXCL, os.FileMode(permissions))
+	flags := int(mode)
+	f, err := os.OpenFile(newName, flags&^os.O_APPEND|os.O_CREATE|os.O_EXCL, os.FileMode(permissions))
 	if err != nil {
 		return nil, p9.QID{}, 0, err
 	}
 
-	l2 := &Local{path: newName, file: f}
+	l2 := &Local{path: newName, file: f, appendMode: flags&os.O_APPEND != 0}
 	qid, _, err := l2.info()
 	if err != nil {
 		l2.Close()
