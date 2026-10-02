@@ -128,3 +128,22 @@ func TestSetAttrAcceptsModesAndOwners(t *testing.T) {
 		t.Fatalf("chmod and chown: %v", err)
 	}
 }
+
+func TestStatFSOnADirectoryAndAFile(t *testing.T) {
+	dir := t.TempDir()
+	root, err := Attacher(dir).Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := root.StatFS(); err != nil || st.Blocks == 0 || st.BlocksAvailable == 0 {
+		t.Fatalf("StatFS on a directory = %+v, %v", st, err)
+	}
+	// Podman stats bind mount sources that are files.
+	_, f, _ := root.Walk([]string{"f"})
+	if _, err := f.StatFS(); err != nil {
+		t.Fatalf("StatFS on a file: %v", err)
+	}
+}
