@@ -52,8 +52,15 @@ const (
 	ModeNamedPipe              = 010000
 )
 
+// modeFromOS converts a Windows file mode. Go reports writable files as 0666 and
+// folders as 0777, but NTFS has no group or others behind those bits, so they
+// are reported as a POSIX system with umask 022 would create them. A symlink
+// keeps 0777, as on Linux, where its own bits mean nothing.
 func modeFromOS(mode os.FileMode) uint32 {
 	m := uint32(mode.Perm())
+	if mode&os.ModeSymlink == 0 {
+		m &^= 0o022
+	}
 	switch {
 	case mode.IsDir():
 		m |= ModeDirectory
