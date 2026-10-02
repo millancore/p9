@@ -3,7 +3,6 @@ package localfs
 import (
 	"os"
 
-	"github.com/hugelgupf/p9/linux"
 	"github.com/hugelgupf/p9/p9"
 	"golang.org/x/sys/windows"
 )
@@ -42,10 +41,8 @@ func localToQid(path string, info os.FileInfo) (uint64, error) {
 	return x, nil
 }
 
-// lock implements p9.File.Lock.
-// As in FreeBSD NFS locking, we just say "sure, we did it" without actually
-// doing anything; this lock design makes even less sense on Windows than
-// it does on Linux (pid? really? what were they thinking?)
+// lock implements p9.File.Lock with advisory POSIX record locks kept in the
+// server, since NTFS only has mandatory ones.
 func (l *Local) lock(pid int, locktype p9.LockType, flags p9.LockFlags, start, length uint64, client string) (p9.LockStatus, error) {
-	return p9.LockStatusOK, linux.ENOSYS
+	return l.posixLock(pid, locktype, start, length, client)
 }
