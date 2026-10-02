@@ -147,3 +147,54 @@ func TestStatFSOnADirectoryAndAFile(t *testing.T) {
 		t.Fatalf("StatFS on a file: %v", err)
 	}
 }
+
+// A directory must stay readable when one of its entries is a link whose
+// target cannot be opened, like the legacy junctions in every Windows profile
+// ("My Documents", "Application Data"), which deny listing.
+func TestLookupOfALinkWhoseTargetCannotBeOpened(t *testing.T) {
+	dir := t.TempDir()
+	root, err := Attacher(dir).Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")); err != nil {
+		t.Skipf("creating a symlink needs Developer Mode or admin: %v", err)
+	}
+
+	if _, _, err := root.Walk([]string{"dangling"}); err != nil {
+		t.Errorf("walk to the link: %v", err)
+	}
+	_, d, _ := root.Walk(nil)
+	if _, _, err := d.Open(p9.ReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if ents, err := d.Readdir(0, 100); err != nil || len(ents) != 2 {
+		t.Errorf("readdir = %d entries, %v; want 2", len(ents), err)
+	}
+}
+
+func TestQIDsFollowPaths(t *testing.T) {
+	dir := t.TempDir()
+	root, err := Attacher(dir).Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	qa, _, _ := root.Walk([]string{"a"})
+	qA, _, _ := root.Walk([]string{"A"})
+	qb, _, _ := root.Walk([]string{"b"})
+	if qa[0].Path != qA[0].Path {
+		t.Errorf("a and A, the same file on NTFS, have QIDs %x and %x", qa[0].Path, qA[0].Path)
+	}
+	if qa[0].Path == qb[0].Path {
+		t.Errorf("a and b share QID %x", qa[0].Path)
+	}
+}

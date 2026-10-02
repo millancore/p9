@@ -1,10 +1,12 @@
 package localfs
 
 import (
+	"hash/fnv"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/hugelgupf/p9/p9"
-	"golang.org/x/sys/windows"
 )
 
 // settableAttrs is what SetAttr applies. NTFS has no POSIX modes or owners,
@@ -19,34 +21,16 @@ func umask(_ int) int {
 	return 0
 }
 
-func localToQid(path string, info os.FileInfo) (uint64, error) {
-	pathPtr, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return 0, err
-	}
-
-	var (
-		access     uint32 // none; we only need metadata
-		sharemode  uint32
-		createmode uint32 = windows.OPEN_EXISTING
-		attribute  uint32 = windows.FILE_ATTRIBUTE_NORMAL
-	)
-	if info.IsDir() {
-		attribute = windows.FILE_FLAG_BACKUP_SEMANTICS
-	}
-	fd, err := windows.CreateFile(pathPtr, access, sharemode, nil, createmode, attribute, 0)
-	if err != nil {
-		return 0, err
-	}
-	defer windows.CloseHandle(fd)
-
-	fi := &windows.ByHandleFileInformation{}
-	if err = windows.GetFileInformationByHandle(fd, fi); err != nil {
-		return 0, err
-	}
-
-	x := uint64(fi.FileIndexHigh)<<32 | uint64(fi.FileIndexLow)
-	return x, nil
+// localToQid derives the QID path from the file's path. Reading the NTFS file
+// index needs the file opened, which fails for links whose target denies
+// access (the legacy junctions in every profile) and takes the whole readdir
+// down with it, and costs three calls per lookup. NTFS paths are compared
+// case-insensitively, so the hash takes them lowered. A renamed file gets a
+// new QID, as on file systems without stable inode numbers.
+func localToQid(path string, _ os.FileInfo) (uint64, error) {
+	h := fnv.New64a()
+	h.Write([]byte(strings.ToLower(filepath.Clean(path))))
+	return h.Sum64(), nil
 }
 
 // lock implements p9.File.Lock with advisory POSIX record locks kept in the
